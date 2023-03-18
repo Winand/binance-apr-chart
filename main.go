@@ -2,31 +2,58 @@ package main
 
 import (
 	"encoding/csv"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/go-echarts/go-echarts/v2/charts"
 	"github.com/go-echarts/go-echarts/v2/opts"
 	"github.com/go-echarts/go-echarts/v2/types"
 )
 
-func readCsvFile(filePath string) [][]string {
-	// https://stackoverflow.com/a/58841827
-	f, err := os.Open(filePath)
-	if err != nil {
-		log.Fatal("Unable to read input file "+filePath, err)
-	}
-	defer f.Close()
+type CsvData struct {
+	mu      sync.RWMutex
+	records [][]string
+	dates   []string
+	dat     map[string][]float64
+}
 
-	csvReader := csv.NewReader(f)
-	records, err := csvReader.ReadAll()
-	if err != nil {
-		log.Fatal("Unable to parse file as CSV for "+filePath, err)
-	}
+var file *os.File
+var reader *csv.Reader
+var data *CsvData
 
-	return records
+func updateDataFromCSV() {
+	for {
+		// Читаем данные из файла
+		file.Seek(0, 0) // переводим указатель на начало файла
+		records, err := reader.ReadAll()
+		if err != nil {
+			panic(err)
+		}
+
+		// Обновляем объект CsvData новыми данными
+		data.mu.Lock()
+		data.records = records
+		data.dates = []string{}
+		data.dat = map[string][]float64{} //{"hello": "world", …}
+		for _, line := range data.records[1:] {
+			// fmt.Println(line[0], line[1], line[2])
+			v, _ := strconv.ParseFloat(line[2], 64)
+			data.dat[line[1]] = append(data.dat[line[1]], v)
+			if len(data.dates) == 0 || data.dates[len(data.dates)-1] != line[0] {
+				data.dates = append(data.dates, line[0])
+			}
+		}
+		// https://stackoverflow.com/a/62079701
+		// bs, _ := json.Marshal(dat)
+		// fmt.Println(string(bs))
+		data.mu.Unlock()
+
+		// Обновляем содержимое файла раз в 5 минут
+		time.Sleep(5 * time.Minute)
+	}
 }
 
 func generateLineItems(vals []float64) []opts.LineData {
@@ -38,20 +65,8 @@ func generateLineItems(vals []float64) []opts.LineData {
 }
 
 func httpserver(w http.ResponseWriter, _ *http.Request) {
-	dates := []string{}
-	dat := map[string][]float64{} //{"hello": "world", …}
-	srcdat := readCsvFile("binance_apr.csv")
-	for _, line := range srcdat[1:] {
-		// fmt.Println(line[0], line[1], line[2])
-		v, _ := strconv.ParseFloat(line[2], 64)
-		dat[line[1]] = append(dat[line[1]], v)
-		if len(dates) == 0 || dates[len(dates)-1] != line[0] {
-			dates = append(dates, line[0])
-		}
-	}
-	// https://stackoverflow.com/a/62079701
-	// bs, _ := json.Marshal(dat)
-	// fmt.Println(string(bs))
+	data.mu.RLock()
+	defer data.mu.RUnlock()
 
 	// create a new line instance
 	line := charts.NewLine()
@@ -66,17 +81,27 @@ func httpserver(w http.ResponseWriter, _ *http.Request) {
 	)
 
 	// Put data into instance
-	line.SetXAxis(dates).SetSeriesOptions(
+	line.SetXAxis(data.dates).SetSeriesOptions(
 		charts.WithLineChartOpts(opts.LineChart{Smooth: true}),
 		// charts.WithLabelOpts(opts.Label{Show: true}),
 	)
-	for asset, vals := range dat {
+	for asset, vals := range data.dat {
 		line.AddSeries(asset, generateLineItems(vals))
 	}
 	line.Render(w)
 }
 
 func main() {
+	file, err := os.Open("binance_apr.csv")
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+	reader = csv.NewReader(file)
+	data = &CsvData{}
+
+	go updateDataFromCSV()
+
 	http.HandleFunc("/", httpserver)
 	// Open port in firewall https://linuxconfig.org/how-to-allow-port-through-firewall-on-almalinux
 	// firewall-cmd --zone=public --add-port 8081/tcp --permanent
