@@ -1,7 +1,11 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/csv"
+	"flag"
+	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -11,6 +15,8 @@ import (
 	"github.com/go-echarts/go-echarts/v2/charts"
 	"github.com/go-echarts/go-echarts/v2/opts"
 	"github.com/go-echarts/go-echarts/v2/types"
+
+	_ "github.com/mattn/go-sqlite3" // https://stackoverflow.com/a/21225073
 )
 
 type CsvData struct {
@@ -91,7 +97,76 @@ func httpserver(w http.ResponseWriter, _ *http.Request) {
 	line.Render(w)
 }
 
+func convert_csv_to_sqlite() {
+	file, err := os.Open("binance_apr.csv")
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	reader = csv.NewReader(file)
+	records, err := reader.ReadAll()
+	if err != nil {
+		panic(err)
+	}
+
+	db, err := sql.Open("sqlite3", "binance_apr.sqlite")
+	if err != nil {
+		log.Fatal(err) // https://stackoverflow.com/q/35996966
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		create table 'apr' (
+			time datetime, asset string, apy float, bonus float,
+			primary key (time, asset)
+		)
+	`)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	// Prepare statement
+	stmt, err := tx.Prepare(
+		`insert into apr (time, asset, apy, bonus) VALUES (unixepoch(?), ?, ?, ?);`,
+	)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer stmt.Close()
+
+	cnt := 0
+	for _, line := range records[1:] {
+		_, err = stmt.Exec(line[0], line[1], line[2], line[3])
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		cnt += 1
+		if cnt%100 == 0 {
+			println(cnt)
+		}
+	}
+	tx.Commit()
+
+	fmt.Println("Data inserted successfully")
+}
+
 func main() {
+	convFlag := flag.Bool("convert", false, "Convert CSV to SQLite")
+	flag.Parse()
+	if *convFlag {
+		println("Conversion...")
+		convert_csv_to_sqlite()
+		os.Exit(0)
+	}
 	file, err := os.Open("binance_apr.csv")
 	if err != nil {
 		panic(err)
