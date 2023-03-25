@@ -97,7 +97,7 @@ func updateDataFromDB() {
 		if err := rows.Scan(&dt, &asset, &apy); err != nil {
 			log.Fatal(err)
 		}
-		fmt.Printf("time=%s, asset=%s, apy=%f\n", dt.String(), asset, apy)
+		// fmt.Printf("time=%s, asset=%s, apy=%f\n", dt.String(), asset, apy)
 		if data.datNew[asset] == nil {
 			data.datNew[asset] = map[time.Time]float32{}
 		}
@@ -116,10 +116,28 @@ func updateDataFromDB() {
 	sort.Sort(data.datesNew)
 }
 
+func updateDataFromDBLoop() {
+	for {
+		updateDataFromDB()
+		// Обновляем содержимое файла раз в 5 минут
+		time.Sleep(5 * time.Minute)
+	}
+}
+
 func generateLineItems(vals []float64) []opts.LineData {
 	items := make([]opts.LineData, 0)
 	for i := 0; i < len(vals); i++ {
 		items = append(items, opts.LineData{Value: vals[i]})
+	}
+	return items
+}
+
+func generateLineItemsNew(dates timeSlice, vals map[time.Time]float32) []opts.LineData {
+	items := make([]opts.LineData, len(dates))
+	for i, t := range dates {
+		if v, found := vals[t]; found {
+			items[i] = opts.LineData{Value: v}
+		}
 	}
 	return items
 }
@@ -141,12 +159,12 @@ func httpserver(w http.ResponseWriter, _ *http.Request) {
 	)
 
 	// Put data into instance
-	line.SetXAxis(data.dates).SetSeriesOptions(
+	line.SetXAxis(data.datesNew).SetSeriesOptions(
 		charts.WithLineChartOpts(opts.LineChart{Smooth: true}),
 		// charts.WithLabelOpts(opts.Label{Show: true}),
 	)
-	for asset, vals := range data.dat {
-		line.AddSeries(asset, generateLineItems(vals))
+	for asset, vals := range data.datNew {
+		line.AddSeries(asset, generateLineItemsNew(data.datesNew, vals))
 	}
 	line.Render(w)
 }
@@ -230,10 +248,8 @@ func main() {
 	reader = csv.NewReader(file)
 	data = &CsvData{}
 
-	updateDataFromDB()
-	os.Exit(0)
-
-	go updateDataFromCSV()
+	go updateDataFromDBLoop()
+	// go updateDataFromCSV()
 
 	http.HandleFunc("/", httpserver)
 	// Open port in firewall https://linuxconfig.org/how-to-allow-port-through-firewall-on-almalinux
