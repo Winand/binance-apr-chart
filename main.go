@@ -116,11 +116,12 @@ func convert_csv_to_sqlite() {
 	}
 	defer db.Close()
 
+	// without rowid https://dba.stackexchange.com/a/265930
 	_, err = db.Exec(`
 		create table 'apr' (
 			time datetime, asset string, apy float, bonus float,
 			primary key (time, asset)
-		)
+		) without rowid
 	`)
 	if err != nil {
 		fmt.Println(err)
