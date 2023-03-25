@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -19,16 +20,25 @@ import (
 	_ "github.com/mattn/go-sqlite3" // https://stackoverflow.com/a/21225073
 )
 
+type timeSlice []time.Time
+
+func (s timeSlice) Less(i, j int) bool { return s[i].Before(s[j]) }
+func (s timeSlice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s timeSlice) Len() int           { return len(s) }
+
 type CsvData struct {
-	mu      sync.RWMutex
-	records [][]string
-	dates   []string
-	dat     map[string][]float64
+	mu       sync.RWMutex
+	records  [][]string
+	dates    []string
+	dat      map[string][]float64
+	datNew   map[string]map[time.Time]float32
+	datesNew timeSlice
 }
 
 var file *os.File
 var reader *csv.Reader
 var data *CsvData
+var db_name = "binance_apr.sqlite"
 
 func updateDataFromCSV() {
 	for {
@@ -60,6 +70,50 @@ func updateDataFromCSV() {
 		// Обновляем содержимое файла раз в 5 минут
 		time.Sleep(5 * time.Minute)
 	}
+}
+
+func updateDataFromDB() {
+	db, err := sql.Open("sqlite3", db_name)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	rows, err := db.Query("select time, asset, apy from apr")
+	if err != nil {
+		panic(err)
+	}
+	defer rows.Close()
+
+	// Обновляем объект CsvData новыми данными
+	data.mu.Lock()
+	data.dates = []string{}
+	data.datNew = map[string]map[time.Time]float32{}
+	dateSet := map[time.Time]struct{}{} // set: https://golang-blog.blogspot.com/2020/04/set-implementation-in-golang.html
+	for rows.Next() {
+		var dt time.Time
+		var asset string
+		var apy float32
+		if err := rows.Scan(&dt, &asset, &apy); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("time=%s, asset=%s, apy=%f\n", dt.String(), asset, apy)
+		if data.datNew[asset] == nil {
+			data.datNew[asset] = map[time.Time]float32{}
+		}
+		data.datNew[asset][dt] = apy
+		dateSet[dt] = struct{}{}
+	}
+	data.mu.Unlock()
+
+	// map sort https://www.geeksforgeeks.org/how-to-sort-golang-map-by-keys-or-values/
+	// time sort https://www.socketloop.com/tutorials/golang-time-slice-or-date-sort-and-reverse-sort-example
+	// zero length, capacity = len(dates)
+	data.datesNew = make(timeSlice, 0, len(data.datesNew))
+	for k := range dateSet {
+		data.datesNew = append(data.datesNew, k)
+	}
+	sort.Sort(data.datesNew)
 }
 
 func generateLineItems(vals []float64) []opts.LineData {
@@ -110,7 +164,7 @@ func convert_csv_to_sqlite() {
 		panic(err)
 	}
 
-	db, err := sql.Open("sqlite3", "binance_apr.sqlite")
+	db, err := sql.Open("sqlite3", db_name)
 	if err != nil {
 		log.Fatal(err) // https://stackoverflow.com/q/35996966
 	}
@@ -174,6 +228,9 @@ func main() {
 	defer file.Close()
 	reader = csv.NewReader(file)
 	data = &CsvData{}
+
+	updateDataFromDB()
+	os.Exit(0)
 
 	go updateDataFromCSV()
 
