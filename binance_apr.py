@@ -3,6 +3,7 @@ Get Binance Earn Flexible products APR
 https://www.binance.com/ru/earn/apr-calculator
 """
 
+import json
 from datetime import datetime
 from pathlib import Path
 import requests
@@ -12,8 +13,11 @@ min_step = .00000001
 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 output_file = Path("binance_apr.csv")
 
+with open("assets.json") as f:
+    asset_list = json.load(f)
+
 results = []
-for asset in ("USDT", "BUSD", "DAI"):
+for asset in asset_list:
     resp = requests.get(URL_APY.format(asset=asset))
     assert resp.ok
     d = resp.json()
