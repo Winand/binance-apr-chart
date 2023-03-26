@@ -1,2 +1,4 @@
 ﻿binance_apr.sqlite
 binance_apr.csv
+.venv
+assets.json
