@@ -187,14 +187,52 @@ func convert_csv_to_sqlite() {
 	fmt.Println("Data inserted successfully")
 }
 
+func showRecords(recNum int) {
+	db, err := sql.Open("sqlite3", DbName)
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+
+	rows, err := db.Query("select time, asset, apy, bonus from apr order by time desc limit ?", recNum)
+	if err != nil {
+		panic(err)
+	}
+	defer rows.Close()
+
+	fmt.Println("Time\t\t\t\tAsset\tAPY\t\tBonus")
+	for rows.Next() {
+		var dt time.Time
+		var asset string
+		var apy float32
+		var bonus float32
+		if err := rows.Scan(&dt, &asset, &apy, &bonus); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("%s\t%s\t%f\t%f\n", dt.String(), asset, apy, bonus)
+	}
+}
+
 func main() {
 	convFlag := flag.Bool("convert", false, "Convert CSV to SQLite")
+	showFlag := flag.Int("show", 0, "Show last n records from database")
 	flag.Parse()
-	if *convFlag {
-		println("Conversion...")
-		convert_csv_to_sqlite()
-		os.Exit(0)
-	}
+	flag.Visit(func(f *flag.Flag) {
+		// https://stackoverflow.com/a/54747682
+		if f.Name == "convert" && *convFlag {
+			println("Conversion...")
+			convert_csv_to_sqlite()
+			os.Exit(0)
+		}
+		if f.Name == "show" {
+			if *showFlag <= 0 {
+				panic("show: wrong number of records")
+			}
+			println("Database content:")
+			showRecords(*showFlag)
+			os.Exit(0)
+		}
+	})
 
 	go updateDataFromDBLoop()
 
