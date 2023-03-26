@@ -6,7 +6,6 @@ https://www.binance.com/ru/earn/apr-calculator
 import json
 import sqlite3
 from datetime import datetime
-from pathlib import Path
 
 import requests
 
@@ -14,7 +13,7 @@ URL_APY = "https://www.binance.com/bapi/earn/v2/friendly/finance-earn/calculator
 min_step = .00000001
 now = datetime.now()  # now(tz=timezone.utc) https://blog.ganssle.io/articles/2019/11/utcnow.html
 current_timestamp = int(now.timestamp())
-output_file = Path("binance_apr.sqlite")
+output_file = "binance_apr.sqlite"
 
 
 with open("assets.json") as f:
