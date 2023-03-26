@@ -2,3 +2,5 @@
 binance_apr.csv
 .venv
 assets.json
+*.ods
+binance-apr-chart
