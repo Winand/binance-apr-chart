@@ -51,6 +51,7 @@ func updateDataFromDB() {
 
 	// Обновляем объект CsvData новыми данными
 	data.mu.Lock()
+	defer data.mu.Unlock()
 	data.dat = map[string]map[time.Time]float32{}
 	dateSet := map[time.Time]struct{}{} // set: https://golang-blog.blogspot.com/2020/04/set-implementation-in-golang.html
 	for rows.Next() {
@@ -67,7 +68,6 @@ func updateDataFromDB() {
 		data.dat[asset][dt] = apy
 		dateSet[dt] = struct{}{}
 	}
-	data.mu.Unlock()
 
 	// map sort https://www.geeksforgeeks.org/how-to-sort-golang-map-by-keys-or-values/
 	// time sort https://www.socketloop.com/tutorials/golang-time-slice-or-date-sort-and-reverse-sort-example
