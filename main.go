@@ -36,6 +36,16 @@ var data = AssetsData{}
 // https://go.dev/tour/basics/15 | https://stackoverflow.com/a/22688926
 const DbName = "binance_apr.sqlite"
 
+type Period int
+
+const (
+	AllData Period = iota
+	DayData
+	WeekData
+	MonthData
+	YearData
+)
+
 func updateDataFromDB() {
 	db, err := sql.Open("sqlite3", DbName)
 	if err != nil {
@@ -97,7 +107,7 @@ func generateLineItems(dates timeSlice, vals map[time.Time]float32) []opts.LineD
 	return items
 }
 
-func httpserver(w http.ResponseWriter, _ *http.Request) {
+func makeLineChart(dataPeriod Period) *charts.Line {
 	data.mu.RLock()
 	defer data.mu.RUnlock()
 
@@ -113,15 +123,59 @@ func httpserver(w http.ResponseWriter, _ *http.Request) {
 		charts.WithLegendOpts(opts.Legend{Show: true}),
 	)
 
+	var minDt time.Time
+	var now = time.Now()
+	switch dataPeriod {
+	case DayData:
+		minDt = now.AddDate(0, 0, -1)
+	case WeekData:
+		minDt = now.AddDate(0, 0, -7)
+	case MonthData:
+		minDt = now.AddDate(0, -1, 0)
+	case YearData:
+		minDt = now.AddDate(-1, 0, 0)
+	}
+	var firstIndex int = -1
+	for i, d := range data.dates {
+		if d.Sub(minDt) >= 0 {
+			firstIndex = i
+			break
+		}
+	}
+	if firstIndex == -1 {
+		return line
+	}
+
+	var dates = data.dates[firstIndex:]
 	// Put data into instance
-	line.SetXAxis(data.dates).SetSeriesOptions(
+	line.SetXAxis(dates).SetSeriesOptions(
 		charts.WithLineChartOpts(opts.LineChart{Smooth: true}),
 		// charts.WithLabelOpts(opts.Label{Show: true}),
 	)
 	for asset, vals := range data.dat {
-		line.AddSeries(asset, generateLineItems(data.dates, vals))
+		line.AddSeries(asset, generateLineItems(dates, vals))
 	}
-	line.Render(w)
+	return line
+}
+
+func endpointDay(w http.ResponseWriter, _ *http.Request) {
+	makeLineChart(DayData).Render(w)
+}
+
+func endpointWeek(w http.ResponseWriter, _ *http.Request) {
+	makeLineChart(WeekData).Render(w)
+}
+
+func endpointMonth(w http.ResponseWriter, _ *http.Request) {
+	makeLineChart(MonthData).Render(w)
+}
+
+func endpointYear(w http.ResponseWriter, _ *http.Request) {
+	makeLineChart(YearData).Render(w)
+}
+
+func endpointAllData(w http.ResponseWriter, _ *http.Request) {
+	makeLineChart(AllData).Render(w)
 }
 
 func convert_csv_to_sqlite() {
@@ -236,7 +290,12 @@ func main() {
 
 	go updateDataFromDBLoop()
 
-	http.HandleFunc("/", httpserver)
+	http.HandleFunc("/", endpointWeek)
+	http.HandleFunc("/day", endpointDay)
+	http.HandleFunc("/week", endpointWeek)
+	http.HandleFunc("/month", endpointMonth)
+	http.HandleFunc("/year", endpointYear)
+	http.HandleFunc("/all", endpointAllData)
 	// Open port in firewall https://linuxconfig.org/how-to-allow-port-through-firewall-on-almalinux
 	// firewall-cmd --zone=public --add-port 8081/tcp --permanent
 	// firewall-cmd --reload
