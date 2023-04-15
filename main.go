@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"flag"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"os"
@@ -35,6 +36,9 @@ var data = AssetsData{}
 
 // https://go.dev/tour/basics/15 | https://stackoverflow.com/a/22688926
 const DbName = "binance_apr.sqlite"
+const templateFile string = "template.html"
+
+var tmpl *template.Template
 
 type Period int
 
@@ -122,6 +126,7 @@ func makeLineChart(dataPeriod Period) *charts.Line {
 		}),
 		charts.WithLegendOpts(opts.Legend{Show: true}),
 	)
+	line.Renderer = newSnippetRenderer(line, line.Validate)
 
 	var minDt time.Time
 	var now = time.Now()
@@ -158,24 +163,34 @@ func makeLineChart(dataPeriod Period) *charts.Line {
 	return line
 }
 
+func render(line *charts.Line, w http.ResponseWriter) {
+	err := tmpl.Execute(w, struct{ Chart template.HTML }{
+		Chart: RenderToHtml(line),
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
 func endpointDay(w http.ResponseWriter, _ *http.Request) {
-	makeLineChart(DayData).Render(w)
+	render(makeLineChart(DayData), w)
 }
 
 func endpointWeek(w http.ResponseWriter, _ *http.Request) {
-	makeLineChart(WeekData).Render(w)
+	render(makeLineChart(WeekData), w)
 }
 
 func endpointMonth(w http.ResponseWriter, _ *http.Request) {
-	makeLineChart(MonthData).Render(w)
+	render(makeLineChart(MonthData), w)
 }
 
 func endpointYear(w http.ResponseWriter, _ *http.Request) {
-	makeLineChart(YearData).Render(w)
+	render(makeLineChart(YearData), w)
 }
 
 func endpointAllData(w http.ResponseWriter, _ *http.Request) {
-	makeLineChart(AllData).Render(w)
+	render(makeLineChart(AllData), w)
 }
 
 func convert_csv_to_sqlite() {
@@ -287,6 +302,12 @@ func main() {
 			os.Exit(0)
 		}
 	})
+
+	var err error
+	tmpl, err = template.ParseFiles(templateFile)
+	if err != nil {
+		panic("Template not found")
+	}
 
 	go updateDataFromDBLoop()
 

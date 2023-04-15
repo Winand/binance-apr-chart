@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Binance APR Chart</title>
+    <style>
+        .centered {            
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            align-items: center;
+        }
+        .button {
+            background-color: #499ad3;
+            border: none;
+            color: white;
+            padding: 15px 32px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+        }
+        .button:hover {
+            background-color: #2c8bcf;
+        }
+    </style>
+</head>
+<body>
+    <div class="centered">
+        <div>{{.Chart}}</div>
+        <div>
+            <a class="button" href="/day">Day</a>
+            <a class="button" href="/week">Week</a>
+            <a class="button" href="/month">Month</a>
+            <a class="button" href="/year">Year</a>
+            <a class="button" href="/all">All</a>
+        </div>
+    </div>
+</body>
+</html>
