@@ -3,7 +3,8 @@
 <head>
 	<title>Binance APR Chart</title>
     <style>
-        .centered {            
+        .centered {
+            /* https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_Flexible_Box_Layout/Basic_Concepts_of_Flexbox */
             display: flex;
             flex-direction: column;
             width: 100%;
@@ -28,11 +29,13 @@
     <div class="centered">
         <div>{{.Chart}}</div>
         <div>
+            <a class="button" href="?shift={{.ShiftL}}">🠔</a>
             <a class="button" href="/day">Day</a>
             <a class="button" href="/week">Week</a>
             <a class="button" href="/month">Month</a>
             <a class="button" href="/year">Year</a>
             <a class="button" href="/all">All</a>
+            <a class="button" href="?shift={{.ShiftR}}">🠖</a>
         </div>
     </div>
 </body>

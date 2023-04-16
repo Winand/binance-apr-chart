@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -111,7 +112,7 @@ func generateLineItems(dates timeSlice, vals map[time.Time]float32) []opts.LineD
 	return items
 }
 
-func makeLineChart(dataPeriod Period) *charts.Line {
+func makeLineChart(dataPeriod Period, shift int) *charts.Line {
 	data.mu.RLock()
 	defer data.mu.RUnlock()
 
@@ -130,28 +131,42 @@ func makeLineChart(dataPeriod Period) *charts.Line {
 
 	var minDt time.Time
 	var now = time.Now()
+	var maxDt time.Time = now
 	switch dataPeriod {
 	case DayData:
-		minDt = now.AddDate(0, 0, -1)
+		minDt = now.AddDate(0, 0, -1+shift)
+		maxDt = now.AddDate(0, 0, shift)
 	case WeekData:
-		minDt = now.AddDate(0, 0, -7)
+		minDt = now.AddDate(0, 0, (-1+shift)*7)
+		maxDt = now.AddDate(0, 0, shift*7)
 	case MonthData:
-		minDt = now.AddDate(0, -1, 0)
+		minDt = now.AddDate(0, -1+shift, 0)
+		maxDt = now.AddDate(0, shift, 0)
 	case YearData:
-		minDt = now.AddDate(-1, 0, 0)
+		minDt = now.AddDate(-1+shift, 0, 0)
+		maxDt = now.AddDate(shift, 0, 0)
 	}
 	var firstIndex int = -1
+	var lastIndex int = -1
 	for i, d := range data.dates {
 		if d.Sub(minDt) >= 0 {
 			firstIndex = i
 			break
 		}
 	}
-	if firstIndex == -1 {
+	for i, d := range data.dates {
+		if d.Sub(maxDt) < 0 {
+			lastIndex = i
+		} else {
+			break
+		}
+	}
+	if firstIndex == -1 || lastIndex == -1 {
+		fmt.Println("Date is out of range", minDt, maxDt, firstIndex, lastIndex)
 		return line
 	}
 
-	var dates = data.dates[firstIndex:]
+	var dates = data.dates[firstIndex:lastIndex]
 	// Put data into instance
 	line.SetXAxis(dates).SetSeriesOptions(
 		charts.WithLineChartOpts(opts.LineChart{Smooth: true}),
@@ -163,9 +178,23 @@ func makeLineChart(dataPeriod Period) *charts.Line {
 	return line
 }
 
-func render(line *charts.Line, w http.ResponseWriter) {
-	err := tmpl.Execute(w, struct{ Chart template.HTML }{
-		Chart: RenderToHtml(line),
+func render(line *charts.Line, w http.ResponseWriter, curShift int) {
+	var rightShift int = curShift + 1
+	var leftShift int = curShift - 1
+	if curShift >= 0 {
+		rightShift = 0
+	}
+	if curShift > 0 {
+		leftShift = 0
+	}
+	err := tmpl.Execute(w, struct {
+		Chart  template.HTML
+		ShiftL int
+		ShiftR int
+	}{
+		Chart:  RenderToHtml(line),
+		ShiftL: leftShift,
+		ShiftR: rightShift,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -173,24 +202,38 @@ func render(line *charts.Line, w http.ResponseWriter) {
 	}
 }
 
-func endpointDay(w http.ResponseWriter, _ *http.Request) {
-	render(makeLineChart(DayData), w)
+func parseShift(r *http.Request) int {
+	// Parse shift= GET parameter, by default returns 0.
+	// https://freshman.tech/snippets/go/extract-url-query-params/
+	shiftPeriod, err := strconv.Atoi(r.URL.Query().Get("shift"))
+	if err != nil {
+		return 0
+	}
+	return shiftPeriod
 }
 
-func endpointWeek(w http.ResponseWriter, _ *http.Request) {
-	render(makeLineChart(WeekData), w)
+func endpointDay(w http.ResponseWriter, r *http.Request) {
+	shift := parseShift(r)
+	render(makeLineChart(DayData, shift), w, shift)
 }
 
-func endpointMonth(w http.ResponseWriter, _ *http.Request) {
-	render(makeLineChart(MonthData), w)
+func endpointWeek(w http.ResponseWriter, r *http.Request) {
+	shift := parseShift(r)
+	render(makeLineChart(WeekData, shift), w, shift)
 }
 
-func endpointYear(w http.ResponseWriter, _ *http.Request) {
-	render(makeLineChart(YearData), w)
+func endpointMonth(w http.ResponseWriter, r *http.Request) {
+	shift := parseShift(r)
+	render(makeLineChart(MonthData, shift), w, shift)
+}
+
+func endpointYear(w http.ResponseWriter, r *http.Request) {
+	shift := parseShift(r)
+	render(makeLineChart(YearData, shift), w, shift)
 }
 
 func endpointAllData(w http.ResponseWriter, _ *http.Request) {
-	render(makeLineChart(AllData), w)
+	render(makeLineChart(AllData, 0), w, 0)
 }
 
 func convert_csv_to_sqlite() {
@@ -311,7 +354,15 @@ func main() {
 
 	go updateDataFromDBLoop()
 
-	http.HandleFunc("/", endpointWeek)
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// https://stackoverflow.com/a/64438192
+		switch r.URL.Path {
+		case "/":
+			endpointWeek(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
 	http.HandleFunc("/day", endpointDay)
 	http.HandleFunc("/week", endpointWeek)
 	http.HandleFunc("/month", endpointMonth)
